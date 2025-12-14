@@ -1,2 +1,1 @@
 alice,$2b$12$fAChuWU4LgRe2EtXhBLxI.yVw6dMT7JxtQEuxf0q4gvU2pTzPaice,admin
-nojjia,$2b$12$Ocs7F1ByQhZQJglq/mGLa.GLAApxEVxnv4DlPoI1eMN78sexP4LjS,admin

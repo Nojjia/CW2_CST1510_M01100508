@@ -38,7 +38,7 @@ def login_user(conn, username, password):
     hash_bytes = hashed.encode('utf-8')
     
     if bcrypt.checkpw(password_encoded, hash_bytes):
-        return True, f"Login successful!\nWelcome, {username}!"
+        return True, user[3]
     else:
         return False, "Incorrect password."
 

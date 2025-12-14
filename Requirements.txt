@@ -1,3 +1,11 @@
+python-dotenv==1.0.0
+sqlite3
 python==3.13.11
 bcrypt==5.0.0
 pandas==2.3.3
+streamlit==1.52.1
+openai==0.28.0  # For Week 10 AI integration
+plotly==5.17.0  # Optional for advanced charts
+matplotlib==3.8.0  # Optional for basic charts
+google-genai==1.55.0
+Version: 1.55.0
