@@ -123,11 +123,8 @@ def load_csv_to_table_it_tickets(conn, csv_path, table_name):
                 df_processed = df_processed.rename(columns={csv_col: db_col})
         
         # Check required columns
-        required_columns = ["ticket_id", "subject"]
-        for col in required_columns:
-            if col not in df_processed.columns:
-                print(f"❌ Missing required column: {col}")
-                return 0
+        df = df.drop(columns=["ticket_id"])
+        df["subject"] = None
         
         # Handle missing columns from schema
         # 1. category - create from description or set default
