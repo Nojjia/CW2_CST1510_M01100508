@@ -1,3 +1,0 @@
-alice,$2b$12$cmztwiVgMQyc0CgEaZO.1ubnRjelf1Ky8C..OfwvcgxdUG79MObg.,user
-
-nojjia,$2b$12$I.Csu.6SMUZcxrst3O7vxOel1R4Xt62QiP/BAupAQQwOE/nz8Cx5K,admin
