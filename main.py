@@ -47,10 +47,10 @@ def main():
     ACCOUNT_ROLES = ["user", "admin", "analyst"]
     LOCKOUT_DURATION = 5
     login_moderator = {"Username": [], "Attempts_Left": [], "Inital_Time_Locked": []}
-    load_csv_to_table_cyber_incident(conn, DATA_DIR / "cyber_incident", "cyber_incident")
-    load_csv_to_table_datasets_metadata(conn, DATA_DIR / "datasets_metadata", "datasets_metadata")
-    load_csv_to_table_datasets_metadata(conn, DATA_DIR / "datasets_metadata", "datasets_metadata")
-    load_csv_to_table_it_tickets(conn, DATA_DIR / "it_tickets", "it_tickets")
+    load_csv_to_table_cyber_incident(conn, DATA_DIR / "cyber_incident.csv", "cyber_incident")
+    load_csv_to_table_datasets_metadata(conn, DATA_DIR / "datasets_metadata.csv", "datasets_metadata")
+    load_csv_to_table_datasets_metadata(conn, DATA_DIR / "datasets_metadata.csv", "datasets_metadata")
+    load_csv_to_table_it_tickets(conn, DATA_DIR / "it_tickets.csv", "it_tickets")
 
     while True:
         display_menu()
