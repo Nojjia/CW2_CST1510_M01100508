@@ -1,9 +1,10 @@
 import pandas as pd
+import sqlite3
 from pathlib import Path
 def load_csv_to_table_cyber_incident(conn, csv_path, table_name):
     # int: Number of rows loaded
     if not csv_path.exists():
-        print(f"⚠️  File not found: {csv_path}")
+        print(f"File not found: {csv_path}")
         return
 
     df = pd.read_csv(csv_path)
@@ -20,81 +21,62 @@ def load_csv_to_table_cyber_incident(conn, csv_path, table_name):
         if_exists="append",
         index=False
     )
+
 def load_csv_to_table_datasets_metadata(conn, csv_path, table_name):
+    """
+    Simplified version for loading datasets metadata.
+    Assumes CSV has: dataset_id, name, rows, columns, uploaded_by, upload_date
+    """
+    import pandas as pd
+    from pathlib import Path
+    
     csv_path = Path(csv_path)
     
     if not csv_path.exists():
-        print(f"⚠️  File not found: {csv_path}")
+        print(f"⚠️ File not found: {csv_path}")
         return 0
     
-    try:
-        # Read the CSV
-        df = pd.read_csv(csv_path)
-        print(f"📄 Read {len(df)} rows from {csv_path.name}")
-        
-        # Different column mappings for different tables
-        if table_name == "cyber_incidents":
-            # For cyber incidents CSV
-            df = df.rename(columns={
-                "timestamp": "date",
-                "category": "incident_type"
-            })
-            # Add missing columns if needed
-            if "reported_by" not in df.columns:
-                df["reported_by"] = None
-            if "incident_id" in df.columns:
-                df = df.drop(columns=["incident_id"])
-                
-        elif table_name == "datasets_metadata":
-            # For datasets metadata CSV (your sample data)
-            df = df.rename(columns={
-                "dataset_id": "id",  # If you want to use auto-increment, omit this
-                "name": "dataset_name",
-                "rows": "record_count",
-                "uploaded_by": "source",  # Adjust based on your schema
-                "upload_date": "last_updated"
-            })
-            
-            # Add missing columns from your schema
-            if "category" not in df.columns:
-                df["category"] = "General"  # Default category
-            
-            if "file_size_mb" not in df.columns:
-                # Calculate approximate file size (assume ~100 bytes per row)
-                df["file_size_mb"] = df["record_count"] * 100 / (1024 * 1024)
-                df["file_size_mb"] = df["file_size_mb"].round(2)
-            
-            # Ensure columns match your schema
-            expected_columns = ["dataset_name", "category", "source", "last_updated", 
-                              "record_count", "file_size_mb"]
-            
-            # Keep only columns that exist in the CSV
-            df = df[[col for col in expected_columns if col in df.columns]]
-            
-        elif table_name == "it_tickets":
-            # For IT tickets CSV (if needed)
-            if "ticket_id" not in df.columns:
-                # Generate ticket IDs if missing
-                df["ticket_id"] = ["IT-" + str(1000 + i) for i in range(len(df))]
-        
-        # Load into database
-        rows_loaded = df.to_sql(
-            name=table_name,
-            con=conn,
-            if_exists="append",
-            index=False
-        )
-        
-        print(f"✅ Successfully loaded {rows_loaded} rows into {table_name} table")
-        return rows_loaded
-        
-    except Exception as e:
-        print(f"❌ Error loading CSV to {table_name}: {e}")
-        return 0
+    df = pd.read_csv(csv_path)
     
+    # Create a new DataFrame with the exact database schema
+    df_db = pd.DataFrame()
+    
+    # Map CSV columns to database columns
+    df_db["dataset_name"] = df["name"]  # CSV 'name' -> DB 'dataset_name'
+    df_db["record_count"] = df["rows"]  # CSV 'rows' -> DB 'record_count'
+    df_db["source"] = df["uploaded_by"]  # CSV 'uploaded_by' -> DB 'source'
+    df_db["last_updated"] = df["upload_date"]  # CSV 'upload_date' -> DB 'last_updated'
+    
+    # Add calculated/derived columns
+    df_db["category"] = "General"  # Default category
+    
+    # Calculate file_size_mb: (rows × columns × 100 bytes) / (1024×1024)
+    df_db["file_size_mb"] = (df["rows"] * df["columns"] * 100) / (1024 * 1024)
+    df_db["file_size_mb"] = df_db["file_size_mb"].round(2)
+    
+    # Insert into database
+    rows_loaded = df_db.to_sql(
+        name=table_name,
+        con=conn,
+        if_exists="append",
+        index=False
+    )
+    
+    print(f"✅ Loaded {rows_loaded} datasets into {table_name}")
+    return rows_loaded
+
 def load_csv_to_table_it_tickets(conn, csv_path, table_name):
+    """
+    Load IT tickets CSV data into the it_tickets table.
+    Handles duplicate ticket_id values by skipping or updating.
+    """
+    import pandas as pd
+    from pathlib import Path
+    
+    csv_path = Path(csv_path)
+    
     if not csv_path.exists():
-        print(f"⚠️  File not found: {csv_path}")
+        print(f"⚠️ File not found: {csv_path}")
         return 0
     
     try:
@@ -102,116 +84,134 @@ def load_csv_to_table_it_tickets(conn, csv_path, table_name):
         df = pd.read_csv(csv_path)
         print(f"📄 Read {len(df)} rows from {csv_path.name}")
         
-        # Create a copy to avoid modifying the original
+        # Check if CSV has required columns
+        required_columns = ["ticket_id", "priority", "description", "status", "assigned_to", "created_at", "resolution_time_hours"]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            print(f"❌ Missing required columns: {missing_columns}")
+            return 0
+        
+        # Create a copy for processing
         df_processed = df.copy()
         
-        # Handle missing columns and rename if needed
+        # 1. Check for duplicate ticket_id in CSV itself
+        csv_duplicates = df_processed[df_processed.duplicated(subset=["ticket_id"], keep=False)]
+        if not csv_duplicates.empty:
+            print(f"⚠️ Found {len(csv_duplicates)} duplicate ticket_id(s) in CSV, keeping first occurrence")
+            df_processed = df_processed.drop_duplicates(subset=["ticket_id"], keep="first")
+        
+        # 2. Check for existing records in database
+        cursor = conn.cursor()
+        existing_tickets = []
+        
+        # Get all existing ticket_ids from database
+        cursor.execute("SELECT ticket_id FROM it_tickets")
+        existing_tickets = [row[0] for row in cursor.fetchall()]
+        
+        if existing_tickets:
+            # Filter out rows that already exist in database
+            before_filter = len(df_processed)
+            df_processed = df_processed[~df_processed["ticket_id"].isin(existing_tickets)]
+            after_filter = len(df_processed)
+            
+            duplicates_removed = before_filter - after_filter
+            if duplicates_removed > 0:
+                print(f"⚠️ Skipped {duplicates_removed} rows that already exist in database")
+        
+        # If no new rows to insert, return early
+        if df_processed.empty:
+            print("ℹ️ All rows already exist in database, nothing to insert")
+            return 0
+        
+        # 3. Prepare columns for database schema
         # Map CSV columns to database columns
-        column_mapping = {
-            "ticket_id": "ticket_id",  # CSV -> DB
-            "priority": "priority",
-            "description": "description",
-            "status": "status",
-            "assigned_to": "assigned_to",
-            "created_at": "created_date",  # created_at -> created_date
-            "resolution_time_hours": "resolved_date"  # We'll convert this
-        }
+        df_processed = df_processed.rename(columns={
+            "created_at": "created_date"
+        })
         
-        # Rename columns based on mapping
-        for csv_col, db_col in column_mapping.items():
-            if csv_col in df_processed.columns:
-                df_processed = df_processed.rename(columns={csv_col: db_col})
-        
-        # Check required columns
-        df = df.drop(columns=["ticket_id"])
-        df["subject"] = None
-        
-        # Handle missing columns from schema
-        # 1. category - create from description or set default
+        # Add missing columns with default values
         if "category" not in df_processed.columns:
-            if "description" in df_processed.columns:
-                # Extract category from first few words of description
-                df_processed["category"] = df_processed["description"].apply(
-                    lambda x: x.split()[0] if isinstance(x, str) and x.strip() else "General"
-                )
-            else:
-                df_processed["category"] = "General"
+            # Extract category from first word of description
+            df_processed["category"] = df_processed["description"].apply(
+                lambda x: x.split()[0] if isinstance(x, str) and x.strip() else "General"
+            )
         
-        # 2. subject - if not in CSV, create from description
         if "subject" not in df_processed.columns:
-            if "description" in df_processed.columns:
-                df_processed["subject"] = df_processed["description"].apply(
-                    lambda x: (x[:50] + "...") if isinstance(x, str) and len(x) > 50 else x
-                )
-            else:
-                df_processed["subject"] = "IT Support Ticket"
+            # Create subject from description (first 50 chars)
+            df_processed["subject"] = df_processed["description"].apply(
+                lambda x: (x[:50] + "...") if isinstance(x, str) and len(x) > 50 else x
+            )
         
-        # 3. created_date - if not in CSV, use current timestamp
-        if "created_date" not in df_processed.columns:
-            from datetime import datetime
-            df_processed["created_date"] = datetime.now().strftime("%Y-%m-%d")
-        
-        # 4. resolved_date - calculate from created_date + resolution_time_hours
-        if "resolved_date" not in df_processed.columns:
-            if "resolution_time_hours" in df.columns:
-                # Convert resolution_time_hours to resolved_date
-                from datetime import datetime, timedelta
-                
-                def calculate_resolved_date(created_date_str, hours):
-                    try:
-                        if pd.isna(hours) or hours == "":
-                            return None
-                        created_date = datetime.strptime(created_date_str, "%Y-%m-%d")
-                        resolved_date = created_date + timedelta(hours=float(hours))
-                        return resolved_date.strftime("%Y-%m-%d")
-                    except:
+        # Calculate resolved_date from created_date + resolution_time_hours
+        if "resolution_time_hours" in df_processed.columns:
+            from datetime import datetime, timedelta
+            
+            def calculate_resolved_date(row):
+                try:
+                    if pd.isna(row.get("resolution_time_hours")) or row["resolution_time_hours"] == "":
                         return None
-                
-                # Check if we have created_date column
-                if "created_date" in df_processed.columns:
-                    df_processed["resolved_date"] = df_processed.apply(
-                        lambda row: calculate_resolved_date(row["created_date"], row.get("resolution_time_hours")),
-                        axis=1
-                    )
-                else:
-                    df_processed["resolved_date"] = None
-            else:
-                df_processed["resolved_date"] = None
+                    
+                    # Parse created_date
+                    created = datetime.strptime(str(row["created_date"]), "%Y-%m-%d")
+                    # Add hours
+                    resolved = created + timedelta(hours=float(row["resolution_time_hours"]))
+                    return resolved.strftime("%Y-%m-%d")
+                except Exception as e:
+                    print(f"Warning: Could not calculate resolved_date for ticket {row.get('ticket_id')}: {e}")
+                    return None
+            
+            df_processed["resolved_date"] = df_processed.apply(calculate_resolved_date, axis=1)
+        else:
+            df_processed["resolved_date"] = None
         
-        # Ensure all database columns exist in the DataFrame
+        # Ensure all database columns exist
         db_columns = [
             "ticket_id", "priority", "status", "category", 
             "subject", "description", "created_date", 
             "resolved_date", "assigned_to"
         ]
         
-        # Add any missing columns with None values
+        # Add any missing columns with None
         for col in db_columns:
             if col not in df_processed.columns:
                 df_processed[col] = None
         
-        # Reorder columns to match database schema order
+        # Reorder columns to match database
         df_processed = df_processed[db_columns]
         
-        # Remove duplicate ticket_ids before inserting
-        duplicates = df_processed[df_processed.duplicated(subset=["ticket_id"], keep=False)]
-        if not duplicates.empty:
-            print(f"⚠️  Found {len(duplicates)} duplicate ticket_id(s), keeping first occurrence")
-            df_processed = df_processed.drop_duplicates(subset=["ticket_id"], keep="first")
+        # 4. Insert data with error handling for each row
+        rows_inserted = 0
+        cursor = conn.cursor()
         
-        # Load into database
-        rows_loaded = df_processed.to_sql(
-            name=table_name,
-            con=conn,
-            if_exists="append",
-            index=False
-        )
+        for _, row in df_processed.iterrows():
+            try:
+                cursor.execute("""
+                    INSERT INTO it_tickets 
+                    (ticket_id, priority, status, category, subject, description, created_date, resolved_date, assigned_to)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, tuple(row))
+                rows_inserted += 1
+            except sqlite3.IntegrityError as e:
+                if "UNIQUE constraint" in str(e):
+                    print(f"⚠️ Skipping duplicate ticket_id: {row['ticket_id']}")
+                    continue
+                else:
+                    print(f"❌ Error inserting ticket {row['ticket_id']}: {e}")
+            except Exception as e:
+                print(f"❌ Error inserting ticket {row['ticket_id']}: {e}")
         
-        print(f"✅ Successfully loaded {rows_loaded} rows into {table_name} table")
-        return rows_loaded
+        conn.commit()
+        
+        print(f"✅ Successfully inserted {rows_inserted} new rows into {table_name} table")
+        print(f"📊 Total tickets in database now: {len(existing_tickets) + rows_inserted}")
+        
+        return rows_inserted
         
     except Exception as e:
         print(f"❌ Error loading CSV to {table_name}: {e}")
         import traceback
         traceback.print_exc()
+        conn.rollback()
         return 0
+
